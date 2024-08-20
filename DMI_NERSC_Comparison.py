@@ -26,16 +26,16 @@ def nc_ice_comparison(start_date, end_date, path_man, path_aut, path_stats):
         day = single_date.strftime("%d")
         month = single_date.strftime("%m")
         year = single_date.strftime("%Y")
-        
+
         path_man_files = os.path.join(path_man, f'ice_conc_greenland_{year}{month}{day}*.nc')
         path_aut_files = os.path.join(path_aut, f's1_icetype_mosaic_{year}{month}{day}0600.nc')
-        
+
         print("Searching for manual files:", path_man_files)
         print("Searching for automatic files:", path_aut_files)
-    
+
         aut_files = sorted(glob.glob(path_aut_files))
         man_files = sorted(glob.glob(path_man_files))
-        
+
         print("Manual files found:", man_files)
         print("Automatic files found:", aut_files)
 
@@ -145,7 +145,7 @@ def daily_ice_comparison(day, month, year, path_man, path_aut, path_stats):
         print('DATE ' + year + month + day + ' SKIPPED because MAN files not found' )
         np.savez(ofile, none=None)
         return
-    
+
     try:
         x_aut, y_aut, mask_aut, ice_type, confidence = read_aut_netcdf(path_aut, year, month, day)
     except FileNotFoundError:
@@ -160,10 +160,10 @@ def daily_ice_comparison(day, month, year, path_man, path_aut, path_stats):
         print('DATE ' + year + month + day + ' SKIPPED because error reading MAN files' )
         np.savez(ofile, none=None)
         return
-    
+
     print('reprojecting')
     mosaic_inter, mask_mosaic_inter = reproject(mosaic, mask_mosaic, y_man, x_man, x_aut, y_aut)
-    
+
     print('ice difference')
     man2aut, res_man, res_aut, mask_diff, mask_nan, land_mask = ice_difference (mosaic_inter, ice_type, mask_mosaic_inter, mask_aut)
 
@@ -172,9 +172,9 @@ def daily_ice_comparison(day, month, year, path_man, path_aut, path_stats):
         print('DATE ' + year + month + day + ' SKIPPED' )
         np.savez(ofile, none=None)
         return
-    print('Statistics') 
+    print('Statistics')
     result = compute_stats_all(man2aut, res_man, res_aut, mask_diff, confidence)
-    
+
     print('writing data')
     np.savez(ofile, **result)
     #write_stats_day(result, path_stats + 'stats_m_', year + month + day)
@@ -225,7 +225,7 @@ def si_type(stage):
         Sea ice type index.
     """
     index_ = 0
-    
+
     if stage == 0:
         index_ = 0
 
@@ -276,12 +276,12 @@ def dominant_ice(ct, ca, sa, cb, sb, cc, sc, polygon_id, polygon_reference, ice_
     dominant_grid = np.zeros(ice_poly_id_grid.shape)
     dominant_vector = np.zeros(len(ca)).astype('int')
     sod = [sa, sb, sc]
-    
+
     for i in range(len(ca)):
         ice = np.argmax([ca[i], cb[i], cc[i]])
         ice_type = si_type(sod[ice][i])
         dominant_vector[i] = ice_type
-    
+
     for p_ref in polygon_reference:
         ic = np.where(p_ref == polygon_reference)[0]
         p_id = polygon_id[ic]
@@ -289,7 +289,7 @@ def dominant_ice(ct, ca, sa, cb, sb, cc, sc, polygon_id, polygon_reference, ice_
             continue
         mask = ice_poly_id_grid == p_id
         dominant_grid[mask] = dominant_vector[ic]
-        
+
     return dominant_grid
 
 def make_mosaic(files, grid_size):
@@ -318,11 +318,11 @@ def make_mosaic(files, grid_size):
     for file in files:
         ct, ca, sa, cb, sb, cc, sc, polygon_id, polygon_reference, ice_poly_id_grid = get_man_file(file)
         file_dominant = dominant_ice(ct, ca, sa, cb, sb, cc, sc, polygon_id, polygon_reference, ice_poly_id_grid)
-        
+
         mask = ice_poly_id_grid.filled(-1) >= 0
         mosaic[mask] = file_dominant[mask]
         mask_mosaic[mask] = 1
-        
+
     return mosaic, mask_mosaic
 
 
@@ -357,22 +357,22 @@ def reproject(mosaic, mask_mosaic, y_man, x_man, x_aut, y_aut):
     crs_aut = NorthPolarStereo(0, 90)
     # Define projection of the thickness product +proj=stere +lon_0=-45 +lat_ts=90 +lat_0=90 +a=6371000 +b=6371000
     crs_man = NorthPolarStereo(-45, 90)
-    
+
     # Create matrices of coordinates for reprojection of SIT product from LAEA to NPS projection
     # NPS coordinates on NPS grid
     x_aut_grd, y_aut_grd = np.meshgrid(x_aut, y_aut)
     # LAEA coordinates on NPS grid
     grd_man = crs_man.transform_points(crs_aut, x_aut_grd, y_aut_grd)
     x_grd_man, y_grd_man = grd_man[:,:,0], grd_man[:,:,1]
-    
+
     # Prepare interpolators for thickness and concentration
     rgi = RegularGridInterpolator((y_man, x_man), mosaic, method='nearest', bounds_error=False)
     mask_rgi = RegularGridInterpolator((y_man, x_man), mask_mosaic, method='nearest', bounds_error=False)
-    
+
     # Do interpolation from LAEA grid onto NPS grid
     mosaic_inter = rgi((y_grd_man, x_grd_man))
     mask_mosaic_inter = mask_rgi((y_grd_man, x_grd_man))
-    
+
     return mosaic_inter, mask_mosaic_inter
 
 
@@ -412,61 +412,61 @@ def ice_difference(mosaic_inter, ice_type, mask_mosaic_inter, mask_aut):
     mask_common = mask_man * mask_aut
     mask_nan = np.where(mask_common == 0, np.nan, mask_common)
     land_mask = ice_type == -1
-    
-    # Results 
+
+    # Results
     res_man = mosaic_inter * mask_common
     res_man = np.nan_to_num(res_man, nan=0)
     res_aut = ice_type * mask_common
 
     diff_man_aut = res_man - res_aut
-    
+
     return diff_man_aut, res_man, res_aut, mask_common, mask_nan, land_mask
 
 def compute_stats_all(man2aut, res_man, res_aut, mask_diff, confidence):
-    
+
     m_man = res_man[mask_diff]
     m_aut = res_aut[mask_diff]
     m_conf = confidence[mask_diff]
-    
-    # basic metric  
+
+    # basic metric
     report = skm.classification_report(m_man, m_aut, digits=3, output_dict=True)
-    
+
     accuracy = report['accuracy']
     macro_avg_p = report['macro avg']['precision']
     macro_avg_r = report['macro avg']['recall']
     macro_avg_f = report['macro avg']['f1-score']
-    
+
     weighted_avg_p = report['weighted avg']['precision']
     weighted_avg_r = report['weighted avg']['recall']
     weighted_avg_f = report['weighted avg']['f1-score']
-    
-    # confusion matrix   
+
+    # confusion matrix
     matrix = skm.confusion_matrix(m_man, m_aut)
-    
+
     # Precision, recall, fscore, and support with suppression of warnings
     p, r, f, s = skm.precision_recall_fscore_support(m_man, m_aut, average=None, zero_division=0, labels=np.unique(m_man))
-    
+
     # jaccard    possibly ok
     jaccard_labels = skm.jaccard_score(m_man, m_aut, average=None)   # list
     jaccard_avg = skm.jaccard_score(m_man, m_aut, average='weighted')  #float
-    
+
     # Kappa    ok
     kappa = skm.cohen_kappa_score(m_man, m_aut, labels=None, weights=None, sample_weight=None)
-    
+
     # Precision recall fscore   ok                 list
     p, r, f, s = skm.precision_recall_fscore_support(m_man, m_aut, average=None, zero_division=0)  # <- Here
-    
+
     # matthews_corrcoef    ok
     mcc = skm.matthews_corrcoef(m_man, m_aut)
-    
+
     # hamming_loss    possibly ok
     hloss = skm.hamming_loss(m_man, m_aut)
-    
+
     # balanced accuracy
     b_acc = skm.balanced_accuracy_score(m_man, m_aut)
-    
+
     log_loss_binary, log_loss_percentage, auc_roc_binary, auc_roc_percentage = confidence_metrics(m_man, m_aut, m_conf)
-    
+
     # Count px in comparison, manual and automatic images
 
     total_man = []
@@ -484,9 +484,9 @@ def compute_stats_all(man2aut, res_man, res_aut, mask_diff, confidence):
         count_aut = np.count_nonzero(res_aut[mask_diff] == i)
         total_man.append(count_man)
         total_aut.append(count_aut)
-        
-        
-        
+
+
+
         result = dict(
         accuracy = accuracy,
         macro_precision = macro_avg_p,
@@ -509,7 +509,7 @@ def compute_stats_all(man2aut, res_man, res_aut, mask_diff, confidence):
         total = total,
         total_man = total_man,
         total_aut = total_aut,
-        
+
         balanced_accuracy_score = b_acc,
         hamming_loss = hloss,
         cohen_kappa_score = kappa,
@@ -517,7 +517,7 @@ def compute_stats_all(man2aut, res_man, res_aut, mask_diff, confidence):
 
         matrix = matrix,
     )
-    
+
 
     return result
 
@@ -571,7 +571,7 @@ def confidence_metrics(m_man, m_aut, m_conf):
         auc_roc_percentage = skm.roc_auc_score(m_man, percentage, multi_class='ovr')
     except ValueError:
         auc_roc_percentage = 0.0
-    
+
     return log_loss_binary, log_loss_percentage, auc_roc_binary, auc_roc_percentage
 
 def image_render(year, month, day, path_img, man2aut, res_man, res_aut, land_mask, mask_diff):

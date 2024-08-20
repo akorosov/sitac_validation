@@ -7,15 +7,15 @@ import glob  # For searching directories for files
 import sklearn.metrics as skm  # For various statistical metrics
 from matplotlib.gridspec import GridSpec  # For creating grid layouts in plots
 # Importing argparse for handling command line arguments
-import argparse  
+import argparse
 # Importing numpy for numerical operations
-import numpy as np  
+import numpy as np
 # Importing matplotlib for plotting
-import matplotlib.pyplot as plt  
+import matplotlib.pyplot as plt
 # Importing netCDF4 for working with NetCDF files
-from netCDF4 import Dataset  
+from netCDF4 import Dataset
 # Importing GDAL, OSR, and OGR from osgeo for geospatial operations
-from osgeo import gdal, osr, ogr  
+from osgeo import gdal, osr, ogr
 # Set matplotlib backend to 'agg' for non-interactive plotting
 import matplotlib
 matplotlib.use('agg')
@@ -151,7 +151,7 @@ def SI_type(stage):
     """
 
     index_ = 0
-    
+
     if stage == 0:
         index_ = 0
     #print('ice_free')
@@ -167,7 +167,7 @@ def SI_type(stage):
         index_=3
     return index_
 
-def ice_type_map(polyindex_arr, icecodes):    
+def ice_type_map(polyindex_arr, icecodes):
     """
     Map ice type to polygons based on icecodes
 
@@ -264,7 +264,7 @@ def week_auto_files(str_date, path_aut):
         month = single_date.strftime("%m")
         year = single_date.strftime("%Y")
 
-        aut_file = sorted(glob.glob(os.path.join(path_aut, 's1_icetype_mosaic_'+year+month+day+'0600.nc'))) 
+        aut_file = sorted(glob.glob(os.path.join(path_aut, 's1_icetype_mosaic_'+year+month+day+'0600.nc')))
         if len(aut_file) > 0:
             aut_files.append(aut_file[0])
     return aut_files
@@ -296,14 +296,14 @@ def mosaic_auto_argmax(aut_files):
         with Dataset(file) as ds:
             ice_type = ds['ice_type'][0].filled(4)
             confidence = ds['confidence'][0]
-            
+
             # Set ice type as 4 where confidence is 0 or ice type is -1
             ice_type[confidence == 0] = 4
             ice_type[ice_type == -1] = 4
 
         maps.append(ice_type)
         prob.append(confidence)
-        
+
     # Create meshgrid for column and row indices
     cols, rows = np.meshgrid(range(m), range(n))
     sum_prob = np.zeros((n, m, 4))
@@ -312,13 +312,13 @@ def mosaic_auto_argmax(aut_files):
     for p, m in zip(prob, maps):
         gpi = m < 4
         sum_prob[rows[gpi], cols[gpi], m[gpi]] += p[gpi]
-        
+
     # Get the index of maximum probability for each cell
     max_prob_idx = np.argmax(sum_prob, axis=2)
 
     # Set index to -1 where sum of probabilities is 0
     max_prob_idx[sum_prob.sum(axis=2) == 0] = -1
-    
+
     return max_prob_idx
 
 
@@ -347,20 +347,20 @@ def is_difference(mosaic_aut, usice_inter):
     # Create masks for automatic and USICE mosaics
     mask_aut = mosaic_aut >= 0
     mask_usnic = usice_inter >= 0
-    
+
     # Calculate mask for common areas
     mask_common = mask_aut * mask_usnic
 
     # Apply common mask to automatic and USICE mosaics
     res_aut = mosaic_aut * mask_common
     res_usnic = usice_inter * mask_common
-    
+
     # Replace NaN values with 0 in the USICE mosaic
     res_usnic = np.nan_to_num(res_usnic, nan=0)
 
     # Calculate the difference between USICE and automatic mosaics
     diff_us_aut = res_usnic - res_aut
-    
+
     return diff_us_aut, res_aut, res_usnic, mask_common
 
 def compute_stats_us_aut(man2aut, res_man, res_aut, mask_diff):
@@ -383,52 +383,52 @@ def compute_stats_us_aut(man2aut, res_man, res_aut, mask_diff):
     result : dict
         Dictionary containing various statistics.
     """
-    
+
     # Extract values where two mosaics differ
     m_man = res_man[mask_diff]
     m_aut = res_aut[mask_diff]
-    
+
     # Calculate classification report
     report = skm.classification_report(m_man, m_aut, digits=3, output_dict=True)
-    
+
     # Extract metrics from the report
     accuracy = report['accuracy']
     macro_avg_p = report['macro avg']['precision']
     macro_avg_r = report['macro avg']['recall']
     macro_avg_f = report['macro avg']['f1-score']
-    
+
     weighted_avg_p = report['weighted avg']['precision']
     weighted_avg_r = report['weighted avg']['recall']
     weighted_avg_f = report['weighted avg']['f1-score']
-    
+
     # Confusion matrix
     matrix = skm.confusion_matrix(m_man, m_aut)
-    
+
     # Jaccard score
     jaccard_labels = skm.jaccard_score(m_man, m_aut, average=None)
     jaccard_avg = skm.jaccard_score(m_man, m_aut, average='weighted')
-    
+
     # Cohen's kappa
     kappa = skm.cohen_kappa_score(m_man, m_aut)
-    
+
     # Precision, recall, fscore, support
     p, r, f, s = skm.precision_recall_fscore_support(m_man, m_aut, average=None, warn_for=('precision', 'recall', 'f-score'))
 
     # Matthews correlation coefficient
     mcc = skm.matthews_corrcoef(m_man, m_aut)
-    
+
     # Hamming loss
     hloss = skm.hamming_loss(m_man, m_aut)
-    
+
     # Balanced accuracy
     b_acc = skm.balanced_accuracy_score(m_man, m_aut)
-    
+
     # Count pixels in comparison, manual, and automatic images
     total_man = [np.count_nonzero(res_man[mask_diff] == i) for i in range(4)]
     total_aut = [np.count_nonzero(res_aut[mask_diff] == i) for i in range(4)]
     total = [np.count_nonzero(man2aut[mask_diff] == i) for i in range(-3, 4)]
     ind = list(range(-3, 4))
-    
+
     # Prepare result dictionary
     result = dict(
         accuracy = accuracy,
@@ -448,7 +448,7 @@ def compute_stats_us_aut(man2aut, res_man, res_aut, mask_diff):
         total = total,
         total_man = total_man,
         total_aut = total_aut,
-        
+
         balanced_accuracy_score = b_acc,
         hamming_loss = hloss,
         cohen_kappa_score = kappa,
@@ -476,9 +476,9 @@ def write_stats_day(datas, path_stats, filename):
     None
     """
     with open(path_stats + filename + '.txt', "a") as file:
-        
+
         for data in datas:
-    
+
             if type(data) == float or isinstance(data, np.float64):
                 file.write(str(data) + "\n")
 
@@ -581,7 +581,7 @@ def image_render(year, month, day, path_img, man2aut, res_man, res_aut, land_mas
 
     # Use tight_layout() only for certain axes
     plt.tight_layout(rect=[0, 0, 0.9, 0.9])  # Adjust the rect values as needed
-    
+
     cbar_comp = plt.colorbar(im1, ax=ax1)
 
     cbar_comp.ax.get_yaxis().set_ticks([])
@@ -701,7 +701,7 @@ def nic_nersc_comparison(start_date, end_date, path_nic, path_nersc, path_stats)
         month = single_date.strftime("%m")
         year = single_date.strftime("%Y")
         path_nic_day = path_nic + 'arctic' + year[2:] + month + day + '/'
-        
+
         # Find manual ice chart file
         man_file = sorted(glob.glob(path_nic_day + 'ARCTIC' + year[2:4] + month + day + '.shp'))
         if len(man_file) == 1:
@@ -710,7 +710,7 @@ def nic_nersc_comparison(start_date, end_date, path_nic, path_nersc, path_stats)
         else:
             print('Manual ice chart does not exist')
 
-        
+
 
 
 def main():
