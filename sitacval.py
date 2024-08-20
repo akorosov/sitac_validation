@@ -2,7 +2,7 @@ from datetime import timedelta
 import os
 
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal, osr, ogr
 import sklearn.metrics as skm
 
 def daterange(start_date, end_date):
@@ -42,6 +42,61 @@ def weekrange(end_date):
     for n in range(6):
         yield end_date - timedelta(n)
 
+
+def rasterize_icehart(shapefile, ds):
+    """
+    Rasterize the ice chart shapefile and extract attribute values.
+
+    Parameters:
+    -----------
+    shapefile : str
+        Path to the ice chart shapefile.
+    ds : osgeo.gdal.Dataset
+        GDAL dataset to rasterize the shapefile onto.
+
+    Returns:
+    --------
+    dst_arr : numpy.ndarray
+        Rasterized ice chart.
+    field_arr : numpy.ndarray
+        Attribute values extracted from the shapefile.
+    """
+    # Define ice chart attribute names
+    field_names = ['CT', 'CA', 'CB', 'CC', 'SA', 'SB', 'SC', 'FA', 'FB', 'FC']
+    field_arr = []
+
+    # Open the input shapefile
+    ivector = ogr.Open(shapefile, 0)
+    ilayer = ivector.GetLayer()
+
+    # Create a temporary memory layer for rasterization
+    odriver = ogr.GetDriverByName('MEMORY')
+    ovector = odriver.CreateDataSource('memData')
+    olayer = ovector.CopyLayer(ilayer, 'burn_ice_layer', ['OVERWRITE=YES'])
+    fidef = ogr.FieldDefn('poly_index', ogr.OFTInteger)
+    olayer.CreateField(fidef)
+
+    # Iterate over features in the memory layer
+    for ft in olayer:
+        ft_id = ft.GetFID() + 1
+        field_vec = [ft_id]
+        # Extract attribute values for each feature
+        for field_name in field_names:
+            field_val = ft.GetField(field_name)
+            if field_val is None:
+                field_vec.append(-9)  # Assign a default value if attribute is missing
+            else:
+                field_vec.append(float(field_val))
+        field_arr.append(field_vec)
+        ft.SetField('poly_index', ft_id)
+        olayer.SetFeature(ft)
+
+    # Rasterize the memory layer onto the GDAL dataset
+    gdal.RasterizeLayer(ds, [1], olayer, options=["ATTRIBUTE=poly_index"])
+    # Read the rasterized array
+    dst_arr = ds.ReadAsArray()
+
+    return dst_arr, np.array(field_arr)
 
 def get_gdal_dataset(x_ul, nx, dx, y_ul, ny, dy, srs_proj4, dtype=gdal.GDT_Float32):
     """
@@ -246,17 +301,12 @@ class ValidationNIC:
                 aut_files.append(filename)
         return aut_files
 
-    def save_stats(self, date, man_ice_shart, aut_ice_shart, mask):
-        stats = {}
-        for prod in self.products:
-            stats[prod] = compute_stats(man_ice_shart[prod][mask[prod]], aut_ice_shart[prod][mask[prod]], self.max_value[prod])
-        stats_filename = f'{self.dir_stats}/stats_{date.strftime("%Y%m%d")}.npz'
-        np.savez(stats_filename, **stats)
-        print(stats_filename)
-
     def process_day(self, date, shapefile):
-        print(date, shapefile)
         aut_files = self.week_auto_files(date)
+        if len(aut_files) == 0:
+            print('No input file for ', date, shapefile)
+            return
+        print('Processing ', date, shapefile)
         aut_ice_shart = self.get_aut_ice_shart(aut_files)
         man_ice_shart = self.get_man_ice_shart(shapefile)
 

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from netCDF4 import Dataset
 from osgeo import gdal, ogr
 
-from utils import ValidationNIC, get_gdal_dataset
+from sitacval import ValidationNIC, get_gdal_dataset, rasterize_icehart, compute_stats
 
 def SI_type(stage):
     """
@@ -81,65 +81,17 @@ def ice_type_map(polyindex_arr, icecodes):
             it_array[mask] = ice_type
     return it_array
 
-def rasterize_icehart(shapefile, ds):
-    """
-    Rasterize the ice chart shapefile and extract attribute values.
-
-    Parameters:
-    -----------
-    shapefile : str
-        Path to the ice chart shapefile.
-    ds : osgeo.gdal.Dataset
-        GDAL dataset to rasterize the shapefile onto.
-
-    Returns:
-    --------
-    dst_arr : numpy.ndarray
-        Rasterized ice chart.
-    field_arr : numpy.ndarray
-        Attribute values extracted from the shapefile.
-    """
-    # Define ice chart attribute names
-    field_names = ['CT', 'CA', 'CB', 'CC', 'SA', 'SB', 'SC', 'FA', 'FB', 'FC']
-    field_arr = []
-
-    # Open the input shapefile
-    ivector = ogr.Open(shapefile, 0)
-    ilayer = ivector.GetLayer()
-
-    # Create a temporary memory layer for rasterization
-    odriver = ogr.GetDriverByName('MEMORY')
-    ovector = odriver.CreateDataSource('memData')
-    olayer = ovector.CopyLayer(ilayer, 'burn_ice_layer', ['OVERWRITE=YES'])
-    fidef = ogr.FieldDefn('poly_index', ogr.OFTInteger)
-    olayer.CreateField(fidef)
-
-    # Iterate over features in the memory layer
-    for ft in olayer:
-        ft_id = ft.GetFID() + 1
-        field_vec = [ft_id]
-        # Extract attribute values for each feature
-        for field_name in field_names:
-            field_val = ft.GetField(field_name)
-            if field_val is None:
-                field_vec.append(-9)  # Assign a default value if attribute is missing
-            else:
-                field_vec.append(float(field_val))
-        field_arr.append(field_vec)
-        ft.SetField('poly_index', ft_id)
-        olayer.SetFeature(ft)
-
-    # Rasterize the memory layer onto the GDAL dataset
-    gdal.RasterizeLayer(ds, [1], olayer, options=["ATTRIBUTE=poly_index"])
-    # Read the rasterized array
-    dst_arr = ds.ReadAsArray()
-
-    return dst_arr, np.array(field_arr)
 
 class ValidationNIC_NERSC(ValidationNIC):
     products = ['sod']
     max_value = {'sod': 3}
     dir_auto_format = '%Y/%m/s1_icetype_mosaic_%Y%m%d0600.nc'
+    labels = [
+        "Ice Free",
+        "Young Ice",
+        "First-Year Ice",
+        "Multi-Year Ice",
+    ]
 
     def get_man_ice_shart(self, shapefile):
             # Define raster parameters
@@ -209,6 +161,13 @@ class ValidationNIC_NERSC(ValidationNIC):
         with Dataset(aut_files[0]) as ds:
             land_mask = ds['ice_type'][0].filled(0) == -1
         return {'sod': max_prob_idx, 'landmask': land_mask}
+
+    def save_stats(self, date, man_ice_shart, aut_ice_shart, mask):
+        stats = compute_stats(man_ice_shart['sod'][mask['sod']], aut_ice_shart['sod'][mask['sod']], self.max_value['sod'])
+        stats['labels'] = self.labels
+        stats_filename = f'{self.dir_stats}/stats_{date.strftime("%Y%m%d")}.npz'
+        np.savez(stats_filename, **stats)
+        print(stats_filename)
 
     def image_render(self, date, man2aut, res_man, res_aut, land_mask, mask_diff):
         """
